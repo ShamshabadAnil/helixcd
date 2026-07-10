@@ -1,7 +1,6 @@
 ---
 file:       AI_RULES.md
-repo:       helixcd-vision (PRIVATE)
-            helixcd (PUBLIC) — copy exact
+repo:       helixcd
 owner:      ShamshabadAnil
 updater:    ShamshabadAnil only
 version:    v1.0
