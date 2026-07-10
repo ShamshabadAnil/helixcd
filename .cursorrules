@@ -1,0 +1,28 @@
+# HelixCD Cursor Rules
+# Owner: ShamshabadAnil
+# Product: HelixCD (AI-native CI/CD)
+
+## Stack (LOCKED)
+Python 3.11+ | Ollama | ChromaDB
+Redis | PostgreSQL | FastAPI
+Docker | GKE | GCR
+
+## Standards
+- PEP8 strictly
+- Type hints always
+- Docstrings always
+- Tests always (80%+ coverage)
+- No hardcoded values
+- No localhost in Docker
+- Container names only
+
+## Never
+- Change product name (HelixCD)
+- Change tech stack
+- Skip tests
+- Add placeholders
+- Change license (MIT)
+
+## Ports
+Dashboard: 9999 | CI: 8888
+CD: 8889 | Obs: 8890
