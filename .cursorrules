@@ -1,28 +1,64 @@
-# HelixCD Cursor Rules
-# Owner: ShamshabadAnil
-# Product: HelixCD (AI-native CI/CD)
+# HelixCD — Cursor Rules v2
+# Minimal. Maximum effect.
+# Read once. Remember forever.
 
-## Stack (LOCKED)
-Python 3.11+ | Ollama | ChromaDB
-Redis | PostgreSQL | FastAPI
-Docker | GKE | GCR
+## WHO
+Product: HelixCD
+Owner: ShamshabadAnil
+Type: AI-native CI/CD + Observability
+Repos: github.com/ShamshabadAnil/helixcd (code)
+       github.com/ShamshabadAnil/helixcd-vision (docs)
 
-## Standards
-- PEP8 strictly
-- Type hints always
-- Docstrings always
-- Tests always (80%+ coverage)
-- No hardcoded values
-- No localhost in Docker
-- Container names only
+## STACK (ALL LOCKED - NO EXCEPTIONS)
+Python 3.11+ | FastAPI | Ollama | ChromaDB HTTP
+Redis | PostgreSQL+pgvector | HTML+CSS+Vanilla JS
+Docker (ALL services) | GKE+GCR primary | EKS+ECR secondary
 
-## Never
-- Change product name (HelixCD)
-- Change tech stack
+## PORTS (LOCKED)
+9999=dashboard 8888=ci 8889=cd 8890=obs
+11434=ollama 8000=chromadb 6379=redis 5432=postgres
+
+## DOCKER CONNECTIONS (LOCKED)
+ALWAYS: http://ollama:11434 NOT localhost:11434
+ALWAYS: http://chromadb:8000 NOT localhost:8000
+ALWAYS: redis:6379 NOT localhost:6379
+ALWAYS: postgres:5432 NOT localhost:5432
+
+## CODE RULES (ALL MANDATORY)
+- Type hints on EVERY function parameter and return
+- Google docstring on EVERY function and class
+- pytest tests alongside every new file (80%+ coverage)
+- Never hardcode values (use os.getenv())
+- Never put secrets in code
+- Error handling on ALL external calls (try/except)
+- PEP8 strictly (max 79 chars per line)
+
+## NEVER DO
+- React/Vue/Angular (plain HTML/JS only)
+- localhost in any Docker/agent code
+- Placeholder or TODO in submissions
 - Skip tests
-- Add placeholders
-- Change license (MIT)
+- Push to main directly
+- Merge own PRs
 
-## Ports
-Dashboard: 9999 | CI: 8888
-CD: 8889 | Obs: 8890
+## BUILD ORDER (STRICT)
+core/ → ci/ → cd/ → observability/ → chat/ → dashboard/
+Never build agents before core/ is done
+
+## COMMIT FORMAT
+feat(module): description
+fix(module): description
+test(module): description
+docs: description
+chore: description
+
+## WHEN CODING
+1. Read design doc in helixcd-vision first
+2. Implement completely (no placeholders)
+3. Write tests alongside (not after)
+4. Follow this file exactly
+
+## WHEN IN DOUBT
+Check helixcd-vision/AI_RULES.md
+Check helixcd-vision/AGENT_CONTEXT_PRIVATE.md
+Ask owner before making new decisions
