@@ -1,0 +1,15 @@
+title = "HelixCD Gitleaks Config"
+
+[allowlist]
+description = "Allowed patterns"
+regexes = [
+  "EXAMPLE_KEY",
+  "your_key_here",
+  "your_secret_here",
+  "your_token_here",
+  "placeholder"
+]
+paths = [
+  ".env.example",
+  "helixcd.yml.example"
+]

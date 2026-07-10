@@ -1,0 +1,10 @@
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+tag_format = "v$version"
+version_files = ["config.py:VERSION"]
+
+[tool.commitizen.customize]
+schema_pattern = "(feat|fix|test|docs|chore|refactor|perf|context)(\\(.+\\))?: .{1,72}"
+bump_pattern = "^(feat|fix|perf)"
+bump_map = {"feat" = "MINOR", "fix" = "PATCH", "perf" = "PATCH"}

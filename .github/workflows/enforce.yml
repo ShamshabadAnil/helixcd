@@ -1,0 +1,222 @@
+name: HelixCD Standards Enforcement
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+jobs:
+
+  lint:
+    name: Code Style (PEP8)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install flake8
+        run: |
+          pip install flake8 \
+                      flake8-docstrings \
+                      flake8-annotations \
+                      flake8-bugbear
+      - name: Run flake8
+        run: |
+          flake8 . \
+            --max-line-length=79 \
+            --extend-ignore=E203 \
+            --exclude=.git,__pycache__,venv,.venv,migrations \
+            --statistics
+
+  typecheck:
+    name: Type Hints (mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install mypy
+        run: pip install mypy
+      - name: Run mypy
+        run: |
+          mypy . \
+            --ignore-missing-imports \
+            --strict \
+            --python-version=3.11
+
+  test:
+    name: Tests (min 80% coverage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio
+      - name: Run tests
+        run: |
+          pytest \
+            --cov=. \
+            --cov-report=term-missing \
+            --cov-fail-under=80 \
+            -v
+
+  security:
+    name: Security Scan (bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bandit
+        run: pip install bandit
+      - name: Run bandit
+        run: |
+          bandit \
+            -r . \
+            -ll \
+            --exclude .git,tests,venv
+
+  secrets:
+    name: Secret Detection (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docstrings:
+    name: Docstring Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pydocstyle
+        run: pip install pydocstyle
+      - name: Check docstrings
+        run: |
+          pydocstyle . \
+            --convention=google \
+            --add-ignore=D100,D104 \
+            --match='(?!test_).*\.py'
+
+  audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pip-audit
+        run: pip install pip-audit
+      - name: Audit dependencies
+        run: |
+          pip-audit \
+            -r requirements.txt \
+            --strict
+
+  commits:
+    name: Commit Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check commit messages
+        run: |
+          git log origin/develop..HEAD \
+            --pretty=format:"%s" | \
+          while read msg; do
+            if ! echo "$msg" | grep -qE \
+              "^(feat|fix|test|docs|chore|refactor|perf|context)(\(.+\))?: .{1,72}$"; then
+              echo "❌ Invalid commit: $msg"
+              echo "Required: type(module): description"
+              echo "Types: feat fix test docs chore refactor perf context"
+              exit 1
+            fi
+          done
+          echo "✅ All commits valid"
+
+  no_localhost:
+    name: No Localhost In Code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for localhost
+        run: |
+          if grep -rn "localhost" \
+            --include="*.py" \
+            --exclude-dir=tests \
+            --exclude-dir=examples \
+            .; then
+            echo "❌ Found localhost!"
+            echo "Use container names:"
+            echo "  http://ollama:11434"
+            echo "  http://chromadb:8000"
+            echo "  redis:6379"
+            echo "  postgres:5432"
+            exit 1
+          fi
+          echo "✅ No localhost found"
+
+  no_hardcoded:
+    name: No Hardcoded Values
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check hardcoded values
+        run: |
+          HARDCODED=$(grep -rn \
+            -E ":[0-9]{4,5}['\"]" \
+            --include="*.py" \
+            --exclude-dir=tests \
+            . | grep -v "# allowed" || true)
+          if [ -n "$HARDCODED" ]; then
+            echo "❌ Possible hardcoded values:"
+            echo "$HARDCODED"
+            echo "Use environment variables"
+            exit 1
+          fi
+          echo "✅ No hardcoded values"
+
+  custom_standards:
+    name: HelixCD Custom Standards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run custom checks
+        run: python3 scripts/check_standards.py
+
+  enforcement_summary:
+    name: All Standards Passed
+    needs:
+      - lint
+      - typecheck
+      - test
+      - security
+      - secrets
+      - docstrings
+      - audit
+      - commits
+      - no_localhost
+      - no_hardcoded
+      - custom_standards
+    runs-on: ubuntu-latest
+    steps:
+      - name: All checks passed
+        run: |
+          echo "✅ All HelixCD standards enforced"
+          echo "✅ Ready for owner review"
+          echo "✅ No prompt injection bypassed this"
