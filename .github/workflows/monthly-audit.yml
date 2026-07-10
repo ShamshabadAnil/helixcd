@@ -1,0 +1,318 @@
+name: Monthly Full Security Audit
+
+on:
+  schedule:
+    # First day of every month at 4am UTC
+    - cron: '0 4 1 * *'
+  workflow_dispatch:
+
+jobs:
+
+  # ── 1. FULL OWASP SCAN ──────────────────────
+  owasp_scan:
+    name: OWASP Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.1.1
+
+      - name: Run OWASP dependency check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'HelixCD'
+          path: '.'
+          format: 'HTML'
+          out: 'owasp-report'
+          args: >
+            --enableRetired
+            --enableExperimental
+
+      - name: Upload OWASP report
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-report-${{ github.run_number }}
+          path: owasp-report
+          retention-days: 90
+
+  # ── 2. DEEP SAST SCAN ───────────────────────
+  deep_sast:
+    name: Deep SAST Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.1.1
+
+      - name: Install tools
+        run: |
+          pip install semgrep bandit safety
+
+      - name: Run comprehensive SAST
+        run: |
+          echo "Running Semgrep..."
+          semgrep \
+            --config=p/python \
+            --config=p/security-audit \
+            --config=p/secrets \
+            --config=p/owasp-top-ten \
+            --json \
+            --output=deep-sast.json \
+            . || true
+
+          echo "Running Bandit..."
+          bandit \
+            -r . \
+            -f json \
+            -o bandit-deep.json \
+            --confidence-level=LOW \
+            --severity-level=LOW \
+            --exclude=tests,venv \
+            || true
+
+          echo "Running Safety..."
+          safety check \
+            -r requirements.txt \
+            --json \
+            > safety-report.json \
+            || true
+
+      - name: Generate audit summary
+        run: |
+          python3 << 'PYEOF'
+          import json
+          from datetime import datetime
+
+          report = {
+            "date": datetime.now().isoformat(),
+            "project": "HelixCD",
+            "owner": "ShamshabadAnil",
+            "scans": {}
+          }
+
+          # Parse semgrep
+          try:
+            with open('deep-sast.json') as f:
+              semgrep = json.load(f)
+            results = semgrep.get('results', [])
+            report['scans']['semgrep'] = {
+              "total": len(results),
+              "critical": len([
+                r for r in results
+                if r.get('extra', {})
+                .get('severity') == 'ERROR'
+              ])
+            }
+          except:
+            report['scans']['semgrep'] = \
+              {"error": "Could not parse"}
+
+          # Parse bandit
+          try:
+            with open('bandit-deep.json') as f:
+              bandit = json.load(f)
+            results = bandit.get('results', [])
+            report['scans']['bandit'] = {
+              "total": len(results),
+              "high": len([
+                r for r in results
+                if r.get('issue_severity') == 'HIGH'
+              ])
+            }
+          except:
+            report['scans']['bandit'] = \
+              {"error": "Could not parse"}
+
+          # Save report
+          with open('monthly-audit-summary.json', 'w') as f:
+            json.dump(report, f, indent=2)
+
+          print("Monthly Audit Summary:")
+          print(json.dumps(report, indent=2))
+          PYEOF
+
+      - name: Upload all reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: monthly-audit-${{ github.run_number }}
+          path: |
+            deep-sast.json
+            bandit-deep.json
+            safety-report.json
+            monthly-audit-summary.json
+          retention-days: 90
+
+  # ── 3. INFRASTRUCTURE AUDIT ─────────────────
+  infra_audit:
+    name: Infrastructure Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.1.1
+
+      - name: Audit Docker configs
+        run: |
+          python3 << 'PYEOF'
+          from pathlib import Path
+          import sys
+
+          issues = []
+          dockerfiles = list(
+            Path('.').rglob('Dockerfile')
+          )
+
+          for df in dockerfiles:
+            try:
+              content = df.read_text()
+              lines = content.split('\n')
+
+              # Check for root user
+              has_user = any(
+                'USER' in l for l in lines
+              )
+              if not has_user:
+                issues.append(
+                  f"❌ {df}: No USER directive"
+                  f" (running as root)"
+                )
+
+              # Check for latest tag
+              for l in lines:
+                if 'FROM' in l and ':latest' in l:
+                  issues.append(
+                    f"⚠️  {df}: Uses :latest tag"
+                    f" — pin exact version"
+                  )
+
+              # Check for secrets in ENV
+              for l in lines:
+                if 'ENV' in l and any(
+                  s in l.upper() for s in
+                  ['PASSWORD', 'SECRET', 'KEY']
+                ):
+                  issues.append(
+                    f"❌ {df}: Possible secret in ENV"
+                    f": {l.strip()}"
+                  )
+            except Exception as e:
+              pass
+
+          if issues:
+            print("Docker Security Issues Found:")
+            for i in issues:
+              print(f"  {i}")
+            sys.exit(1)
+
+          print(f"✅ {len(dockerfiles)} Dockerfiles"
+                f" passed security check")
+          PYEOF
+
+      - name: Audit K8s manifests
+        run: |
+          python3 << 'PYEOF'
+          from pathlib import Path
+          import sys
+
+          issues = []
+          yaml_files = list(
+            Path('k8s').rglob('*.yaml')
+          ) if Path('k8s').exists() else []
+
+          for yf in yaml_files:
+            try:
+              content = yf.read_text()
+
+              # Check for privileged containers
+              if 'privileged: true' in content:
+                issues.append(
+                  f"❌ {yf}: Privileged container"
+                )
+
+              # Check for root user
+              if 'runAsRoot: true' in content:
+                issues.append(
+                  f"❌ {yf}: Running as root"
+                )
+
+              # Check for resource limits
+              if 'resources:' not in content and \
+                 'kind: Deployment' in content:
+                issues.append(
+                  f"⚠️  {yf}: No resource limits"
+                )
+
+              # Check for secrets in plain text
+              if 'stringData:' in content:
+                issues.append(
+                  f"❌ {yf}: Plain text secrets"
+                  f" — use Secret Manager"
+                )
+
+            except Exception:
+              pass
+
+          if issues:
+            print("K8s Security Issues:")
+            for i in issues:
+              print(f"  {i}")
+          else:
+            print(f"✅ {len(yaml_files)} K8s manifests"
+                  f" passed security check")
+          PYEOF
+
+  # ── 4. MONTHLY REPORT ISSUE ─────────────────
+  monthly_report:
+    name: Create Monthly Security Report
+    needs:
+      - owasp_scan
+      - deep_sast
+      - infra_audit
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Create monthly report issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const date = new Date()
+              .toISOString().split('T')[0];
+            const month = new Date()
+              .toLocaleString('default',
+                { month: 'long', year: 'numeric' });
+            const runUrl =
+              `${context.serverUrl}/`
+              + `${context.repo.owner}/`
+              + `${context.repo.repo}/actions/runs/`
+              + `${context.runId}`;
+
+            const status =
+              '${{ needs.deep_sast.result }}'
+              === 'success' ? '✅' : '❌';
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `${status} Monthly Security Audit - ${month}`,
+              body: `## HelixCD Monthly Security Audit\n\n`
+                + `Month: ${month}\n`
+                + `Date: ${date}\n`
+                + `Full Report: ${runUrl}\n\n`
+                + `### Scans Run\n`
+                + `- OWASP Dependency Check\n`
+                + `- Deep SAST (Semgrep + Bandit + Safety)\n`
+                + `- Infrastructure Audit\n`
+                + `- Docker Security Check\n`
+                + `- K8s Manifest Check\n\n`
+                + `### Action Required\n`
+                + `- [ ] Download and review all reports\n`
+                + `- [ ] Fix all CRITICAL issues\n`
+                + `- [ ] Fix all HIGH issues\n`
+                + `- [ ] Plan fixes for MEDIUM\n`
+                + `- [ ] Update security standards doc\n`
+                + `- [ ] Update MEMORY_LOG with findings\n\n`
+                + `### Reports Available\n`
+                + `Download from workflow artifacts.\n`
+                + `Retained for 90 days.\n\n`
+                + `CC: @ShamshabadAnil`,
+              labels: [
+                'security-audit',
+                'monthly',
+                'automated'
+              ],
+              assignees: ['ShamshabadAnil']
+            });

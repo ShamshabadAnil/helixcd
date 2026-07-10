@@ -1,0 +1,130 @@
+name: Enforce HelixCD Workflow
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+
+  validate_pr:
+    name: Validate PR Follows Helix Workflow
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.1.1
+
+      - name: Check PR description
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const body = pr.body || '';
+            const title = pr.title || '';
+            const violations = [];
+
+            // Check title format
+            const titlePattern =
+              /^(feat|fix|test|docs|chore|refactor|perf|context)(\(.+\))?: .+/;
+            if (!titlePattern.test(title)) {
+              violations.push(
+                'PR title must follow format: ' +
+                'type(module): description'
+              );
+            }
+
+            // Check references issue
+            if (!body.match(/closes?\s+#\d+/i) &&
+                !body.match(/fixes?\s+#\d+/i) &&
+                !body.match(/resolves?\s+#\d+/i)) {
+              violations.push(
+                'PR must reference a GitHub issue ' +
+                '(e.g., Closes #42)'
+              );
+            }
+
+            // Check checklist present
+            if (!body.includes('- [')) {
+              violations.push(
+                'PR must include checklist ' +
+                'from PR template'
+              );
+            }
+
+            // Check helix workflow mentioned
+            if (!body.match(/helix/i)) {
+              violations.push(
+                'PR description must confirm ' +
+                'helix workflow was followed'
+              );
+            }
+
+            if (violations.length > 0) {
+              const message =
+                '## Workflow Violations Found\n\n' +
+                'This PR does not follow the ' +
+                'HelixCD agent workflow.\n\n' +
+                '### Issues:\n' +
+                violations.map(v =>
+                  `- ${v}`
+                ).join('\n') +
+                '\n\n### Required:\n' +
+                '1. Run `helix next` before starting\n' +
+                '2. Complete the work\n' +
+                '3. Run `helix done` after\n' +
+                '4. Follow PR template exactly\n\n' +
+                'Fix these issues to proceed.';
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: message
+              });
+
+              core.setFailed(
+                `${violations.length} workflow ` +
+                `violation(s) found`
+              );
+            } else {
+              console.log(
+                'PR workflow validation passed'
+              );
+            }
+
+  validate_commits:
+    name: Validate Commit Messages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.1.1
+        with:
+          fetch-depth: 0
+
+      - name: Check commit messages
+        run: |
+          PATTERN="^(feat|fix|test|docs|chore|\
+refactor|perf|context)(\(.+\))?: .{1,72}$"
+
+          INVALID=0
+          while IFS= read -r msg; do
+            if ! echo "$msg" | \
+               grep -qE "$PATTERN"; then
+              echo "[FAIL] Invalid: $msg"
+              INVALID=$((INVALID + 1))
+            else
+              echo "[OK] Valid: $msg"
+            fi
+          done < <(git log \
+            origin/develop..HEAD \
+            --pretty=format:"%s" \
+            2>/dev/null || true)
+
+          if [ $INVALID -gt 0 ]; then
+            echo ""
+            echo "Fix commit messages:"
+            echo "  feat(module): description"
+            echo "  fix(module):  description"
+            echo "  test(module): description"
+            echo "  docs:         description"
+            exit 1
+          fi
+
+          echo "All commit messages valid"

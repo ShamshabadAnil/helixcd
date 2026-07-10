@@ -1,0 +1,83 @@
+name: Context Freshness Check
+
+on:
+  schedule:
+    # Check every day at 8am UTC
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+jobs:
+  check_freshness:
+    name: Check Context File Freshness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.1.1
+        with:
+          fetch-depth: 0
+
+      - name: Check AGENT_CONTEXT age
+        run: |
+          FILE="AGENT_CONTEXT_PUBLIC.md"
+
+          if [ ! -f "$FILE" ]; then
+            echo "❌ $FILE not found!"
+            exit 1
+          fi
+
+          # Get last commit date for file
+          LAST_COMMIT=$(git log -1 \
+            --format="%ct" -- "$FILE")
+          NOW=$(date +%s)
+          AGE_DAYS=$(( (NOW - LAST_COMMIT) \
+            / 86400 ))
+
+          echo "AGENT_CONTEXT age: $AGE_DAYS days"
+
+          if [ $AGE_DAYS -gt 7 ]; then
+            echo "⚠️ Context is $AGE_DAYS days old!"
+            echo "Update AGENT_CONTEXT_PUBLIC.md"
+            exit 1
+          fi
+
+          echo "✅ Context is fresh ($AGE_DAYS days)"
+
+      - name: Create stale context issue
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const date = new Date()
+              .toISOString().split('T')[0];
+
+            // Check if issue already exists
+            const issues =
+              await github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                labels: 'stale-context',
+                state: 'open'
+              });
+
+            if (issues.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `⚠️ Context Files Stale - ${date}`,
+                body: `## Context Files Need Update\n\n`
+                  + `AGENT_CONTEXT_PUBLIC.md has not\n`
+                  + `been updated in over 7 days.\n\n`
+                  + `### Action Required\n`
+                  + `Update these files before next\n`
+                  + `AI agent session:\n\n`
+                  + `- [ ] AGENT_CONTEXT_PUBLIC.md\n`
+                  + `- [ ] Run sync-context.sh\n`
+                  + `- [ ] Update MEMORY_LOG\n`
+                  + `- [ ] Update WORK_REGISTRY\n\n`
+                  + `CC: @ShamshabadAnil`,
+                labels: [
+                  'stale-context',
+                  'automated'
+                ],
+                assignees: ['ShamshabadAnil']
+              });
+            }
