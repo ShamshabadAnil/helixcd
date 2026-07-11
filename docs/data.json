@@ -1,0 +1,16 @@
+{
+  "task_id": "01",
+  "task_name": "Product Vision",
+  "task_status": "not_started",
+  "progress_done": 0,
+  "progress_total": 181,
+  "progress_percent": 0,
+  "phase": "documentation",
+  "prompt": "# HelixCD Agent Context\nOwner: ShamshabadAnil\nProgress: 0/181 (0%)\n\nTASK: 01 - Product Vision\n\nSTACK(LOCKED):\nPython3.11 | Ollama+ChromaDB+Redis+PostgreSQL\nFastAPI | HTML+CSS+VanillaJS | Docker | GKE+GCR\n\nCONNECTIONS(DOCKER - NEVER localhost):\nollama:11434 | chromadb:8000\nredis:6379 | postgres:5432\n\nRULES(NEVER BREAK):\n- Type hints + docstrings on ALL functions\n- Tests required (80%+ coverage)\n- No secrets in code\n- No React/Vue/Angular\n- No placeholders or TODOs\n- No localhost in Docker code\n\nLAST SESSIONS:\n- No previous sessions\n\nREPOS:\ngithub.com/ShamshabadAnil/helixcd\ngithub.com/ShamshabadAnil/helixcd-vision\n\nConfirm task. Begin immediately.\nEnd with: Run helix done",
+  "memory": [
+    "No previous sessions"
+  ],
+  "token_estimate": 169,
+  "updated": "2026-07-12T01:44:27.838472",
+  "owner": "ShamshabadAnil"
+}
