@@ -1,0 +1,87 @@
+name: Update Mobile Prompt Page
+
+on:
+  # Run when context files update
+  push:
+    branches: [main]
+    paths:
+      - 'AGENT_CONTEXT_PUBLIC.md'
+      - 'docs/**'
+      - 'scripts/generate_mobile_data.py'
+
+  # Run on schedule (every 2 hours)
+  schedule:
+    - cron: '0 */2 * * *'
+
+  # Allow manual trigger
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  generate_and_deploy:
+    name: Generate Prompt + Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout helixcd
+        uses: actions/checkout@v4.1.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Try to get helixcd-vision
+      # Uses PAT if available
+      # Falls back to public context only
+      - name: Checkout helixcd-vision
+        continue-on-error: true
+        uses: actions/checkout@v4.1.1
+        with:
+          repository: ShamshabadAnil/helixcd-vision
+          token: ${{ secrets.VISION_PAT || secrets.GITHUB_TOKEN }}
+          path: helixcd-vision
+
+      - name: Set up Python
+        uses: actions/setup-python@v5.1.0
+        with:
+          python-version: '3.11'
+
+      - name: Generate data.json
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
+          GITHUB_WORKSPACE: ${{ github.workspace }}
+        run: |
+          python scripts/generate_mobile_data.py
+
+      - name: Commit data.json
+        run: |
+          git config user.name "HelixCD Bot"
+          git config user.email \
+            "bot@helixcd.dev"
+          git add docs/data.json
+          git diff --staged --quiet || \
+          git commit -m \
+            "chore: update mobile prompt data"
+          git push origin main
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload to Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/
+
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Print URL
+        run: |
+          echo ""
+          echo "Mobile prompt page live at:"
+          echo "https://ShamshabadAnil.github.io/helixcd"
+          echo ""
