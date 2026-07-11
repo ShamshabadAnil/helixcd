@@ -13,6 +13,7 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE="$HOME/helixcd-workspace"
 REPO="$WORKSPACE/helixcd"
 VISION="$WORKSPACE/helixcd-vision"
@@ -21,12 +22,39 @@ PROXY="$WORKSPACE/helix-proxy"
 export PYTHONUTF8=1
 export PYTHONIOENCODING=utf-8
 
+# macOS ships python3, not python
+if command -v python3 &>/dev/null; then
+  PYTHON=python3
+elif command -v python &>/dev/null; then
+  PYTHON=python
+else
+  echo "[FAIL] Python 3.11+ required."
+  echo "       Install: brew install python@3.11"
+  exit 1
+fi
+
 echo ""
 echo "============================================"
 echo "  HelixCD Agent Workflow Enforcement"
 echo "  Owner: ShamshabadAnil"
 echo "============================================"
 echo ""
+
+mkdir -p "$PROXY" "$WORKSPACE/helixcd-logs"
+
+# Link repo when run from clone outside ~/helixcd-workspace
+if [ ! -d "$REPO" ] && [ -f "$SCRIPT_DIR/.cursorrules" ]; then
+  if [ ! -e "$REPO" ]; then
+    ln -sf "$SCRIPT_DIR" "$REPO"
+    echo "  [INFO] Linked $REPO -> $SCRIPT_DIR"
+  fi
+fi
+
+if [ ! -f "$PROXY/state_machine.py" ]; then
+  echo "[WARN] helix-proxy not initialized yet."
+  echo "       Run first: ./setup-minimal-prompts.sh"
+  echo ""
+fi
 
 # ════════════════════════════════════════════════
 # FILE 1 — ENFORCE CURSORRULES
@@ -504,15 +532,24 @@ LOG="$WORKSPACE/helixcd-logs/sessions.log"
 
 mkdir -p "$WORKSPACE/helixcd-logs"
 
+if command -v python3 &>/dev/null; then
+  PYTHON=python3
+elif command -v python &>/dev/null; then
+  PYTHON=python
+else
+  echo "[FAIL] Python 3 required. brew install python@3.11"
+  exit 1
+fi
+
 # Log this session start
 echo "$(date '+%Y-%m-%d %H:%M') | helix-next | started" \
   >> "$LOG"
 
 # Run validation
-python "$PROXY/session_validator.py" check
+$PYTHON "$PROXY/session_validator.py" check
 
 # Check for stale context
-python << 'PYEOF'
+$PYTHON << 'PYEOF'
 import os
 import time
 from pathlib import Path
@@ -570,8 +607,17 @@ echo "============================================"
 echo "  Post-Work Validation"
 echo "============================================"
 
+if command -v python3 &>/dev/null; then
+  PYTHON=python3
+elif command -v python &>/dev/null; then
+  PYTHON=python
+else
+  echo "[FAIL] Python 3 required. brew install python@3.11"
+  exit 1
+fi
+
 # Check if helix done was acknowledged
-python << 'PYEOF'
+$PYTHON << 'PYEOF'
 import json
 import sys
 from pathlib import Path
@@ -783,6 +829,15 @@ LOGS="$WORKSPACE/helixcd-logs"
 
 mkdir -p "$CACHE" "$LOGS"
 
+if command -v python3 &>/dev/null; then
+  PYTHON=python3
+elif command -v python &>/dev/null; then
+  PYTHON=python
+else
+  echo "[FAIL] Python 3 required. brew install python@3.11"
+  exit 1
+fi
+
 CMD=${1:-help}
 ARG="${@:2}"
 
@@ -830,7 +885,7 @@ pull_latest() {
 build_prompt() {
   local cmd="$1"
   local arg="$2"
-  python "$PROXY/state_machine.py" \
+  $PYTHON "$PROXY/state_machine.py" \
     "$cmd" "$arg" 2>/dev/null
 }
 
@@ -890,7 +945,7 @@ case "$CMD" in
     read -p "Your agent (claude/cursor/grok): " AGENT
 
     # Mark complete and add memory
-    python << PYEOF
+    $PYTHON << PYEOF
 import sys
 sys.path.insert(0, '$PROXY')
 from state_machine import (
@@ -978,19 +1033,19 @@ PYEOF
   # ── CHECK WORKFLOW ─────────────────────────
   check)
     echo ""
-    python "$PROXY/session_validator.py" check
+    $PYTHON "$PROXY/session_validator.py" check
     ;;
 
   # ── SEE VIOLATIONS ────────────────────────
   violations)
     echo ""
-    python "$PROXY/session_validator.py" violations
+    $PYTHON "$PROXY/session_validator.py" violations
     ;;
 
   # ── STATUS ────────────────────────────────
   status)
     echo ""
-    python << 'PYEOF'
+    $PYTHON << 'PYEOF'
 import sys
 import os
 from pathlib import Path
@@ -1045,7 +1100,7 @@ PYEOF
     read -p "Completed: " COMPLETED
     read -p "Next task: " NEXT_TASK
 
-    python << PYEOF
+    $PYTHON << PYEOF
 import sys
 sys.path.insert(0, '$PROXY')
 from state_machine import add_memory_entry
@@ -1201,6 +1256,9 @@ echo "  [OK] PR template updated"
 # ════════════════════════════════════════════════
 echo "[DIR] Creating agent onboarding..."
 
+mkdir -p "$VISION/operations" 2>/dev/null || true
+
+if [ -d "$VISION" ]; then
 cat > "$VISION/operations/AGENT_ONBOARDING.md" \
 << 'EOF'
 ---
@@ -1281,6 +1339,10 @@ Always ask for helix context.
 EOF
 
 echo "  [OK] AGENT_ONBOARDING.md"
+else
+  echo "  [SKIP] helixcd-vision not found at $VISION"
+  echo "         Clone it to enable onboarding doc"
+fi
 
 # ════════════════════════════════════════════════
 # COMMIT EVERYTHING
@@ -1288,10 +1350,11 @@ echo "  [OK] AGENT_ONBOARDING.md"
 echo ""
 echo "[PUSH] Committing enforcement files..."
 
-cd "$REPO"
-git add .
-git commit -m \
-  "chore: add agent workflow enforcement
+if [ -d "$REPO/.git" ]; then
+  cd "$REPO"
+  git add .
+  git commit -m \
+    "chore: add agent workflow enforcement
 
 Enforces helix command workflow:
 
@@ -1321,21 +1384,28 @@ Scripts:
 
 Operations:
   AGENT_ONBOARDING.md" \
-  --quiet 2>/dev/null || true
-git push origin main --quiet 2>/dev/null || true
+    --quiet 2>/dev/null || true
+  git push origin main --quiet 2>/dev/null || true
+else
+  echo "  [SKIP] git push for helixcd (repo not at $REPO)"
+fi
 
-cd "$VISION"
-git add .
-git commit -m \
-  "ops: add agent onboarding protocol OP-10
+if [ -d "$VISION/.git" ]; then
+  cd "$VISION"
+  git add .
+  git commit -m \
+    "ops: add agent onboarding protocol OP-10
 
 Complete onboarding for any AI agent.
 Enforces helix command workflow.
 Defines start/end session protocol." \
-  --quiet 2>/dev/null || true
-git push origin main --quiet 2>/dev/null || true
+    --quiet 2>/dev/null || true
+  git push origin main --quiet 2>/dev/null || true
+else
+  echo "  [SKIP] git push for helixcd-vision"
+fi
 
-echo "  [OK] All committed to GitHub"
+echo "  [OK] Commit step finished"
 
 # ════════════════════════════════════════════════
 # FINAL SUMMARY

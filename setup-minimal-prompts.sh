@@ -19,11 +19,23 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE="$HOME/helixcd-workspace"
 REPO="$WORKSPACE/helixcd"
 VISION="$WORKSPACE/helixcd-vision"
 PROXY_DIR="$WORKSPACE/helix-proxy"
 STATE_FILE="$WORKSPACE/.helix-state.json"
+
+# macOS ships python3, not python
+if command -v python3 &>/dev/null; then
+  PYTHON=python3
+elif command -v python &>/dev/null; then
+  PYTHON=python
+else
+  echo "❌ Python 3.11+ required."
+  echo "   Install: brew install python@3.11"
+  exit 1
+fi
 
 echo ""
 echo "╔═══════════════════════════════════════╗"
@@ -31,7 +43,15 @@ echo "║   HelixCD Minimal Prompt System       ║"
 echo "╚═══════════════════════════════════════╝"
 echo ""
 
-mkdir -p "$PROXY_DIR"
+mkdir -p "$PROXY_DIR" "$WORKSPACE"
+
+# Link repo when run from clone outside ~/helixcd-workspace
+if [ ! -d "$REPO" ] && [ -f "$SCRIPT_DIR/.cursorrules" ]; then
+  if [ ! -e "$REPO" ]; then
+    ln -sf "$SCRIPT_DIR" "$REPO"
+    echo "  ℹ️  Linked $REPO -> $SCRIPT_DIR"
+  fi
+fi
 
 # ════════════════════════════════════════════════
 # FILE 1 — STATE MACHINE
@@ -41,7 +61,7 @@ mkdir -p "$PROXY_DIR"
 echo "📁 Creating state machine..."
 
 cat > "$PROXY_DIR/state_machine.py" << 'EOF'
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 HelixCD State Machine.
 
@@ -437,6 +457,15 @@ CACHE="$WORKSPACE/.helix-cache"
 
 mkdir -p "$CACHE"
 
+if command -v python3 &>/dev/null; then
+  PYTHON=python3
+elif command -v python &>/dev/null; then
+  PYTHON=python
+else
+  echo "❌ Python 3 required. brew install python@3.11"
+  exit 1
+fi
+
 CMD=${1:-help}
 ARG="${@:2}"
 
@@ -502,7 +531,7 @@ case "$CMD" in
     echo "⟳ Loading next task..."
     pull_latest
 
-    PROMPT=$(python "$PROXY/state_machine.py" \
+    PROMPT=$($PYTHON "$PROXY/state_machine.py" \
       next 2>/dev/null)
 
     echo ""
@@ -528,13 +557,13 @@ case "$CMD" in
     read -p "Your agent (claude/cursor/grok): " AGENT
 
     # Get next task before marking done
-    NEXT=$(python "$PROXY/state_machine.py" \
+    NEXT=$($PYTHON "$PROXY/state_machine.py" \
       next 2>/dev/null | \
       grep "^TASK:" | \
       sed 's/TASK: //')
 
     # Mark complete
-    python - << PYEOF
+    $PYTHON - << PYEOF
 import sys
 sys.path.insert(0, '$PROXY')
 from state_machine import mark_complete, add_memory_entry
@@ -567,7 +596,7 @@ Next: $NEXT" --quiet 2>/dev/null || true
     echo ""
 
     # Auto-load next task
-    PROMPT=$(python "$PROXY/state_machine.py" \
+    PROMPT=$($PYTHON "$PROXY/state_machine.py" \
       next 2>/dev/null)
 
     copy_to_clipboard "$PROMPT"
@@ -583,7 +612,7 @@ Next: $NEXT" --quiet 2>/dev/null || true
     echo "⟳ Loading doc $DOC_NUM task..."
     pull_latest
 
-    PROMPT=$(python "$PROXY/state_machine.py" \
+    PROMPT=$($PYTHON "$PROXY/state_machine.py" \
       doc "$DOC_NUM" 2>/dev/null)
 
     copy_to_clipboard "$PROMPT"
@@ -599,7 +628,7 @@ Next: $NEXT" --quiet 2>/dev/null || true
     echo "⟳ Loading code task: $MODULE..."
     pull_latest
 
-    PROMPT=$(python "$PROXY/state_machine.py" \
+    PROMPT=$($PYTHON "$PROXY/state_machine.py" \
       code "$MODULE" 2>/dev/null)
 
     copy_to_clipboard "$PROMPT"
@@ -614,7 +643,7 @@ Next: $NEXT" --quiet 2>/dev/null || true
     echo ""
     echo "⟳ Loading fix task..."
 
-    PROMPT=$(python "$PROXY/state_machine.py" \
+    PROMPT=$($PYTHON "$PROXY/state_machine.py" \
       fix "$ISSUE" 2>/dev/null)
 
     copy_to_clipboard "$PROMPT"
@@ -626,7 +655,7 @@ Next: $NEXT" --quiet 2>/dev/null || true
   # ── STATUS ──────────────────────────────
   status)
     echo ""
-    python << 'PYEOF'
+    $PYTHON << 'PYEOF'
 import sys
 import os
 
@@ -681,7 +710,7 @@ PYEOF
     read -p "Completed: " COMPLETED
     read -p "Next task: " NEXT_TASK
 
-    python - << PYEOF
+    $PYTHON - << PYEOF
 import sys
 sys.path.insert(0, '$PROXY')
 from state_machine import add_memory_entry
@@ -706,7 +735,7 @@ PYEOF
     echo "⟳ Loading next task for Claude..."
     pull_latest
 
-    PROMPT=$(python "$PROXY/state_machine.py" \
+    PROMPT=$($PYTHON "$PROXY/state_machine.py" \
       next 2>/dev/null)
 
     copy_to_clipboard "$PROMPT"
@@ -721,7 +750,7 @@ PYEOF
     echo "⟳ Loading next task for Cursor..."
     pull_latest
 
-    PROMPT=$(python "$PROXY/state_machine.py" \
+    PROMPT=$($PYTHON "$PROXY/state_machine.py" \
       next 2>/dev/null)
 
     copy_to_clipboard "$PROMPT"
@@ -741,7 +770,7 @@ PYEOF
     echo "⟳ Loading next task for Grok..."
     pull_latest
 
-    PROMPT=$(python "$PROXY/state_machine.py" \
+    PROMPT=$($PYTHON "$PROXY/state_machine.py" \
       next 2>/dev/null)
 
     copy_to_clipboard "$PROMPT"
@@ -913,7 +942,7 @@ echo "  ✅ helix command installed at $BIN_DIR"
 # ════════════════════════════════════════════════
 echo "📁 Initializing state machine..."
 
-python << 'PYEOF'
+$PYTHON << 'PYEOF'
 import json
 import sys
 import os
@@ -953,18 +982,21 @@ PYEOF
 echo ""
 echo "📤 Committing to GitHub..."
 
-cd "$REPO"
-git add .cursorrules
-git commit -m \
-  "chore: optimize cursorrules for minimal tokens
+if [ -d "$REPO/.git" ]; then
+  cd "$REPO"
+  git add .cursorrules
+  git commit -m \
+    "chore: optimize cursorrules for minimal tokens
 
 Reduced .cursorrules to essential rules only.
 Maximum effect, minimum token consumption.
 All rules enforced, zero redundancy." \
-  --quiet 2>/dev/null || true
-git push origin main --quiet 2>/dev/null || true
-
-echo "  ✅ Pushed to GitHub"
+    --quiet 2>/dev/null || true
+  git push origin main --quiet 2>/dev/null || true
+  echo "  ✅ Pushed to GitHub"
+else
+  echo "  ℹ️  Skipped git push (repo not at $REPO)"
+fi
 
 # ════════════════════════════════════════════════
 # FINAL SUMMARY
